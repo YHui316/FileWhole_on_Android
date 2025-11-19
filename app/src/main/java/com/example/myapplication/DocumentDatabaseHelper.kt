@@ -6,11 +6,11 @@ import android.database.sqlite.SQLiteOpenHelper
 
 /**
  * document.sqlite 数据库
- * 负责创建你定义的 8 个表 + FTS5 虚拟表
+ * 负责创建你定义的 8 个表 + FTS4 虚拟表
  *
  * 设计目标：
- * - 不使用任何 FTS5 附加参数（无 tokenize=、content=、content_rowid=、UNINDEXED 等）
- * - 只用列定义 + rowid + 触发器，最大限度兼容旧 SQLite/旧 FTS5 实现
+ * - 不使用任何 FTS4 附加参数（无 tokenize=、content=、content_rowid=、UNINDEXED 等）
+ * - 只用列定义 + rowid + 触发器，最大限度兼容旧 SQLite/旧 FTS4 实现
  */
 class DocumentDatabaseHelper private constructor(context: Context) :
     SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
@@ -121,8 +121,8 @@ class DocumentDatabaseHelper private constructor(context: Context) :
             );
         """
 
-        // t_content_idx：FTS5 虚拟表
-        // ★ 关键：只写列名，不写任何 FTS5 参数，最大程度兼容旧 SQLite/FTS5
+        // t_content_idx：FTS4 虚拟表
+        // ★ 关键：只写列名，不写任何 FTS4 参数，最大程度兼容旧 SQLite/FTS4
         private const val SQL_CREATE_T_CONTENT_IDX = """
             CREATE VIRTUAL TABLE IF NOT EXISTS t_content_idx USING fts4(
                 content,                            -- 文件内容
@@ -235,37 +235,91 @@ class DocumentDatabaseHelper private constructor(context: Context) :
 
 
     /**
-     * 使用 FTS5 在 t_content_idx 上做全文检索
-     * @param matchQuery 完整的 FTS5 MATCH 语句，例如：
+     * 使用 FTS4 在 t_content_idx 上做全文检索。
+     *
+     * 如果 matchQuery 中不含中文（CJK），则当作完整的 FTS4 MATCH 语句，例如：
      *  - "content:错误"
      *  - "file_name:报告"
      *  - "content:日志 AND file_name:接口"
+     *
+     * 如果 matchQuery 中包含中文字符，则改用普通 LIKE，在 t_content.content 上做
+     * 模糊匹配（不再使用 FTS4），用于兼容中文检索。
      */
     fun searchDocuments(matchQuery: String): List<SearchResult> {
         val db = readableDatabase
-        val sql = """
-        SELECT c.id, c.file_name, c.dirpath, c.ext
-        FROM t_content_idx
-        JOIN t_content AS c ON c.rid = t_content_idx.rowid
-        WHERE t_content_idx MATCH ?
-    """.trimIndent()
-
-//        // 只在 content 列里搜，把查询改成 "content:关键字"
-//        val ftsQuery = "content:$query"
-
-        val cursor = db.rawQuery(sql, arrayOf(matchQuery))
         val result = mutableListOf<SearchResult>()
-        cursor.use {
-            while (it.moveToNext()) {
-                val id = it.getString(0)
-                val fileName = it.getString(1)
-                val dirpath = it.getString(2)
-                val ext = it.getString(3)
-                result.add(SearchResult(id, fileName, dirpath, ext))
+
+        return if (matchQuery.containsCJK()) {
+            // ---------- 中文查询：用 LIKE 在内容上模糊匹配 ----------
+            // 从 matchQuery 中提取关键字（去掉类似 "content:" 的前缀）
+            val keyword = matchQuery
+                .substringAfter(':', matchQuery)  // 如果有 "content:关键字" 这种形式，就取冒号后面
+                .trim()
+                .trim('"')                        // 去掉可能的引号
+
+            val likeArg = "%$keyword%"
+
+            val sql = """
+            SELECT id, file_name, dirpath, ext
+            FROM t_content
+            WHERE content LIKE ?
+        """.trimIndent()
+
+            val cursor = db.rawQuery(sql, arrayOf(likeArg))
+            cursor.use {
+                while (it.moveToNext()) {
+                    val id = it.getString(0)
+                    val fileName = it.getString(1)
+                    val dirpath = it.getString(2)
+                    val ext = it.getString(3)
+                    result.add(SearchResult(id, fileName, dirpath, ext))
+                }
+            }
+            result
+        } else {
+            // ---------- 非中文：走原来的 FTS MATCH ----------
+            val sql = """
+            SELECT c.id, c.file_name, c.dirpath, c.ext
+            FROM t_content_idx
+            JOIN t_content AS c ON c.rid = t_content_idx.rowid
+            WHERE t_content_idx MATCH ?
+        """.trimIndent()
+
+            val cursor = db.rawQuery(sql, arrayOf(matchQuery))
+            cursor.use {
+                while (it.moveToNext()) {
+                    val id = it.getString(0)
+                    val fileName = it.getString(1)
+                    val dirpath = it.getString(2)
+                    val ext = it.getString(3)
+                    result.add(SearchResult(id, fileName, dirpath, ext))
+                }
+            }
+            result
+        }
+    }
+
+
+    /** 简单判断字符串中是否包含 CJK（中文）字符 */
+    private fun String.containsCJK(): Boolean {
+        for (ch in this) {
+            val code = ch.code
+            // 常用汉字基本区 + 扩展区的一部分
+            if (
+                code in 0x4E00..0x9FFF ||   // CJK Unified Ideographs
+                code in 0x3400..0x4DBF ||   // CJK Unified Ideographs Extension A
+                code in 0x20000..0x2A6DF || // Extension B（大部分情况用不到，但顺带包含）
+                code in 0x2A700..0x2B73F || // Extension C
+                code in 0x2B740..0x2B81F || // Extension D
+                code in 0x2B820..0x2CEAF    // Extension E
+            ) {
+                return true
             }
         }
-        return result
+        return false
     }
+
+
 }
 
 /**
