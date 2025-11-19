@@ -168,20 +168,15 @@ fun DocumentSearchApp(
                 MainSection.SETTINGS -> {
                     SettingsSection(
                         selectedDirectory = uiState.selectedDirectory,
+                        allExtensions = uiState.availableExtensions,
                         selectedExtensions = uiState.selectedExtensions,
                         isIndexing = uiState.isIndexing,
                         indexProgress = uiState.indexProgress,
                         onChooseDirectoryClick = {
                             directoryLauncher.launch(null)
                         },
-                        onChooseExtensionsClick = {
-                            // 目前固定为 txt，未来可以弹出多选框扩展 pdf/docx 等
-                            Toast.makeText(
-                                context,
-                                "目前默认索引 txt 文件，未来可扩展更多类型",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            viewModel.setSelectedExtensions(listOf("txt"))
+                        onToggleExtension = { ext ->
+                            viewModel.toggleExtension(ext)
                         },
                         onStartIndexClick = {
                             if (uiState.selectedDirectoryUri == null) {
@@ -345,11 +340,12 @@ fun SearchResultRow(
 @Composable
 fun SettingsSection(
     selectedDirectory: String,
-    selectedExtensions: List<String>,
+    allExtensions: List<String>,      // 可选文件类型
+    selectedExtensions: List<String>,  // 当前勾选的类型
     isIndexing: Boolean,
     indexProgress: Float,
     onChooseDirectoryClick: () -> Unit,
-    onChooseExtensionsClick: () -> Unit,
+    onToggleExtension: (String) -> Unit,
     onStartIndexClick: () -> Unit
 ) {
     Column(
@@ -377,17 +373,32 @@ fun SettingsSection(
 
         Text("索引的文件类型：")
         Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = if (selectedExtensions.isEmpty()) "未选择"
-            else selectedExtensions.joinToString(", "),
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = onChooseExtensionsClick) {
-            Text("选择文件类型")
-        }
+        // 用多行 Checkbox 展示所有可选类型
+        Column {
+            allExtensions.forEach { ext ->
+                val checked = selectedExtensions.contains(ext)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 2.dp)
+                ) {
+                    Checkbox(
+                        checked = checked,
+                        onCheckedChange = {
+                            onToggleExtension(ext)
+                        }
+                    )
+                    Text(text = ext)
+                }
+            }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            if (selectedExtensions.isEmpty()) {
+                Text(
+                    text = "（当前未选择任何类型，将不会索引文件）",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text("索引进度：")
         Spacer(modifier = Modifier.height(4.dp))

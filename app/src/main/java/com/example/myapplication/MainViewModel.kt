@@ -26,7 +26,10 @@ data class MainUiState(
     // 系统设置 / 索引配置
     val selectedDirectory: String = "未选择",           // 展示给用户看的名称
     val selectedDirectoryUri: String? = null,          // SAF 的 Uri 字符串
-    val selectedExtensions: List<String> = listOf("txt"), // 先只做 txt，方便扩展
+    // ✔ 可选择的所有文件类型（你以后要扩展就在这里加）
+    val availableExtensions: List<String> = listOf("txt", "pdf", "docx"),
+    // ✔ 当前勾选的文件类型（默认只勾 txt）
+    val selectedExtensions: List<String> = listOf("txt"),
     val isIndexing: Boolean = false,
     val indexProgress: Float = 0f
 )
@@ -114,8 +117,20 @@ class MainViewModel(
         }
     }
 
-    fun setSelectedExtensions(exts: List<String>) {
-        _uiState.update { it.copy(selectedExtensions = exts) }
+//    fun setSelectedExtensions(exts: List<String>) {
+//        _uiState.update { it.copy(selectedExtensions = exts) }
+//    }
+
+    fun toggleExtension(ext: String) {
+        _uiState.update { state ->
+            val current = state.selectedExtensions.toMutableSet()
+            if (current.contains(ext)) {
+                current.remove(ext)
+            } else {
+                current.add(ext)
+            }
+            state.copy(selectedExtensions = current.toList())
+        }
     }
 
     /**
