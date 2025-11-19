@@ -6,7 +6,7 @@ FileWhole是一个全文检索软件，包含Windows版，安卓版和鸿蒙版
 
 具体使用方式：
 
-1.拉下代码，配置环境：环境信息如下：jbr-21,Gradle-8.13,Android API 35+
+1.拉下代码，配置环境：环境信息如下：jbr-21,sdk26,Gradle-8.13,Android API 35+
 
 2.模拟器编译运行
 
