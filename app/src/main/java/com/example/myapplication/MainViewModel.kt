@@ -31,7 +31,15 @@ data class MainUiState(
     // ✔ 当前勾选的文件类型（默认只勾 txt）
     val selectedExtensions: List<String> = listOf("txt"),
     val isIndexing: Boolean = false,
-    val indexProgress: Float = 0f
+    val indexProgress: Float = 0f,
+
+
+    // 预览弹窗相关
+    val isPreviewDialogVisible: Boolean = false,
+    val previewFileName: String = "",
+    val previewContent: String = "",
+    val isPreviewLoading: Boolean = false,
+    val previewError: String? = null
 )
 
 /**
@@ -161,6 +169,54 @@ class MainViewModel(
             _uiState.update { it.copy(isIndexing = false) }
         }
     }
+
+    /* ---------- 预览弹窗 ---------- */
+
+    fun showPreview(result: SearchResult) {
+        viewModelScope.launch {
+            // 先让弹窗显示，并进入“加载中”状态
+            _uiState.update {
+                it.copy(
+                    isPreviewDialogVisible = true,
+                    isPreviewLoading = true,
+                    previewFileName = result.fileName,
+                    previewContent = "",
+                    previewError = null
+                )
+            }
+
+            try {
+                val content = repository.getDocumentContentById(result.id) ?: ""
+                _uiState.update {
+                    it.copy(
+                        isPreviewLoading = false,
+                        previewContent = content.ifBlank { "（内容为空或提取失败）" },
+                        previewError = null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isPreviewLoading = false,
+                        previewContent = "",
+                        previewError = e.message ?: "读取内容失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissPreview() {
+        _uiState.update {
+            it.copy(
+                isPreviewDialogVisible = false,
+                isPreviewLoading = false,
+                previewContent = "",
+                previewError = null
+            )
+        }
+    }
+
 }
 
 /**
