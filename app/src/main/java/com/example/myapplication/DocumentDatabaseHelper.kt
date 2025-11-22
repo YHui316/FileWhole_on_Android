@@ -233,39 +233,87 @@ class DocumentDatabaseHelper private constructor(context: Context) :
         // t_content_ai 触发器会自动把数据插入 t_content_idx
     }
 
-
     /**
-     * 使用 FTS4 在 t_content_idx 上做全文检索。
+     * 使用 FTS4 + 普通 LIKE 做全文检索。
      *
-     * 如果 matchQuery 中不含中文（CJK），则当作完整的 FTS4 MATCH 语句，例如：
+     * matchQuery 是 ViewModel 里 buildFtsQuery 拼出来的，例如：
      *  - "content:错误"
-     *  - "file_name:报告"
-     *  - "content:日志 AND file_name:接口"
+     *  - "file_name:报告*"
+     *  - "content:日志 AND file_name:接口*"
      *
-     * 如果 matchQuery 中包含中文字符，则改用普通 LIKE，在 t_content.content 上做
-     * 模糊匹配（不再使用 FTS4），用于兼容中文检索。
+     * 逻辑：
+     *  - 如果 matchQuery 中 **不含中文**：直接把整个 matchQuery 作为 FTS4 MATCH 使用
+     *    → 支持 “内容 AND 文件名” 的联合搜索（英文/数字等）
+     *  - 如果 matchQuery 中 **包含中文**：解析出 content / file_name 对应的关键字，
+     *    在 t_content 上用 LIKE 组合查询（content LIKE ? AND file_name LIKE ?）
+     *    → 解决 FTS4 对中文分词不友好的问题，同时保留“联合搜索”能力
      */
     fun searchDocuments(matchQuery: String): List<SearchResult> {
         val db = readableDatabase
         val result = mutableListOf<SearchResult>()
 
-        return if (matchQuery.containsCJK()) {
-            // ---------- 中文查询：用 LIKE 在内容上模糊匹配 ----------
-            // 从 matchQuery 中提取关键字（去掉类似 "content:" 的前缀）
-            val keyword = matchQuery
-                .substringAfter(':', matchQuery)  // 如果有 "content:关键字" 这种形式，就取冒号后面
-                .trim()
-                .trim('"')                        // 去掉可能的引号
+        // ---------- 先从 matchQuery 中解析出“内容关键字 / 文件名关键字” ----------
+        var contentKeyword: String? = null
+        var fileNameKeyword: String? = null
 
-            val likeArg = "%$keyword%"
+        if (matchQuery.isNotBlank()) {
+            val parts = matchQuery
+                .split("AND")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+
+            for (part in parts) {
+                when {
+                    part.startsWith("content:") -> {
+                        var v = part.removePrefix("content:").trim()
+                        v = v.trim('"')
+                        contentKeyword = v
+                    }
+
+                    part.startsWith("file_name:") -> {
+                        var v = part.removePrefix("file_name:").trim()
+                        v = v.trim('"')
+                        // 我们在 ViewModel 里拼的是 file_name:关键字*（前缀匹配），这里把 * 去掉
+                        if (v.endsWith("*")) {
+                            v = v.dropLast(1)
+                        }
+                        fileNameKeyword = v
+                    }
+                }
+            }
+        }
+
+        return if (matchQuery.containsCJK()) {
+            // ---------- 中文相关：走普通 LIKE，在 t_content 上做联合查询 ----------
+
+            // 如果解析不到任何关键字，直接返回空，避免全表扫描
+            if (contentKeyword.isNullOrEmpty() && fileNameKeyword.isNullOrEmpty()) {
+                return emptyList()
+            }
+
+            val where = StringBuilder("1=1")
+            val args = mutableListOf<String>()
+
+            // 内容关键字：content LIKE %xxx%
+            contentKeyword?.takeIf { it.isNotBlank() }?.let { kw ->
+                where.append(" AND content LIKE ?")
+                args += "%$kw%"
+            }
+
+            // 文件名关键字：file_name LIKE %xxx%
+            fileNameKeyword?.takeIf { it.isNotBlank() }?.let { kw ->
+                where.append(" AND file_name LIKE ?")
+                // 这里你可以改成 "$kw%"（前缀匹配）或 "%$kw%"（只要包含即可）
+                args += "%$kw%"
+            }
 
             val sql = """
             SELECT id, file_name, dirpath, ext
             FROM t_content
-            WHERE content LIKE ?
-        """.trimIndent()
+            WHERE $where
+            """.trimIndent()
 
-            val cursor = db.rawQuery(sql, arrayOf(likeArg))
+            val cursor = db.rawQuery(sql, args.toTypedArray())
             cursor.use {
                 while (it.moveToNext()) {
                     val id = it.getString(0)
@@ -277,13 +325,13 @@ class DocumentDatabaseHelper private constructor(context: Context) :
             }
             result
         } else {
-            // ---------- 非中文：走原来的 FTS MATCH ----------
+            // ---------- 非中文：走原来的 FTS4 MATCH ----------
             val sql = """
             SELECT c.id, c.file_name, c.dirpath, c.ext
             FROM t_content_idx
             JOIN t_content AS c ON c.rid = t_content_idx.rowid
             WHERE t_content_idx MATCH ?
-        """.trimIndent()
+            """.trimIndent()
 
             val cursor = db.rawQuery(sql, arrayOf(matchQuery))
             cursor.use {
@@ -296,6 +344,23 @@ class DocumentDatabaseHelper private constructor(context: Context) :
                 }
             }
             result
+        }
+    }
+
+
+    /**
+     * 根据 id（即插入时的 path / uri.toString()）获取该文档的内容
+     */
+    fun getDocumentContentById(id: String): String? {
+        val db = readableDatabase
+        val sql = "SELECT content FROM t_content WHERE id = ?"
+        val cursor = db.rawQuery(sql, arrayOf(id))
+        cursor.use {
+            return if (it.moveToFirst()) {
+                it.getString(0)
+            } else {
+                null
+            }
         }
     }
 

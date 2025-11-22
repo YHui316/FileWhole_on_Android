@@ -28,6 +28,11 @@ class DocumentRepository(
         withContext(Dispatchers.IO) {
             db.searchDocuments(matchQuery)
         }
+    /** 根据 id 取文档内容，供前端预览使用 */
+    suspend fun getDocumentContentById(id: String): String? =
+        withContext(Dispatchers.IO) {
+            db.getDocumentContentById(id)
+        }
 
     /** 单条写入（目前索引过程内部会用到） */
     suspend fun insertDocument(
