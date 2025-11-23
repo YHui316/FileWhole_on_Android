@@ -1,6 +1,5 @@
 package com.example.myapplication
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import android.provider.DocumentsContract
@@ -30,6 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModelProvider
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
 
 /**
  * 主界面：左侧导航 + 右侧内容区域（Compose UI）
@@ -133,7 +135,6 @@ fun DocumentSearchApp(
                     .width(1.dp),
                 thickness = DividerDefaults.Thickness, color = DividerDefaults.color
             )
-
         }
 
         // ---------- 右侧内容 ----------
@@ -204,7 +205,8 @@ fun DocumentSearchApp(
                                     try {
                                         context.startActivity(intent)
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "无法打开目录", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "无法打开目录", Toast.LENGTH_SHORT)
+                                            .show()
                                     }
                                 } else {
                                     Toast.makeText(context, "无法获取目录", Toast.LENGTH_SHORT).show()
@@ -254,6 +256,7 @@ fun DocumentSearchApp(
                 }
 
                 MainSection.SETTINGS -> {
+                    // 系统设置页面主体
                     SettingsSection(
                         selectedDirectory = uiState.selectedDirectory,
                         allExtensions = uiState.availableExtensions,
@@ -263,8 +266,8 @@ fun DocumentSearchApp(
                         onChooseDirectoryClick = {
                             directoryLauncher.launch(null)
                         },
-                        onToggleExtension = { ext ->
-                            viewModel.toggleExtension(ext)
+                        onOpenExtensionPicker = {
+                            viewModel.openExtensionDialog()
                         },
                         onStartIndexClick = {
                             if (uiState.selectedDirectoryUri == null) {
@@ -278,6 +281,50 @@ fun DocumentSearchApp(
                             }
                         }
                     )
+
+                    // 文件类型选择弹窗
+                    if (uiState.isExtensionDialogVisible) {
+                        AlertDialog(
+                            onDismissRequest = { viewModel.dismissExtensionDialog() },
+                            title = { Text("选择要建立索引的文件类型") },
+                            text = {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 120.dp, max = 320.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    uiState.availableExtensions.forEach { ext ->
+                                        val checked = uiState.selectedExtensions.contains(ext)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        ) {
+                                            Checkbox(
+                                                checked = checked,
+                                                onCheckedChange = {
+                                                    viewModel.toggleExtension(ext)
+                                                }
+                                            )
+                                            Text(text = ext)
+                                        }
+                                    }
+
+                                    if (uiState.availableExtensions.isEmpty()) {
+                                        Text(
+                                            text = "当前没有可用的文件类型选项。",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { viewModel.dismissExtensionDialog() }) {
+                                    Text("完成")
+                                }
+                            }
+                        )
+                    }
                 }
 
                 MainSection.INDEX -> {
@@ -430,14 +477,12 @@ fun SearchResultRow(
     }
 }
 
-
 /** 把长路径截断为前 8 个字符，多余部分用 "..." 表示 */
 private fun shortenPath(path: String, maxLen: Int = 8): String {
     return if (path.length <= maxLen) path else path.substring(0, maxLen) + "..."
 }
 
-
-/* ---------------- 系统设置板块 UI ---------------- */
+/* ---------------- 系统设置板块 UI（已改：文件类型 = 按钮 + 弹窗） ---------------- */
 @Composable
 fun SettingsSection(
     selectedDirectory: String,
@@ -446,7 +491,7 @@ fun SettingsSection(
     isIndexing: Boolean,
     indexProgress: Float,
     onChooseDirectoryClick: () -> Unit,
-    onToggleExtension: (String) -> Unit,
+    onOpenExtensionPicker: () -> Unit,
     onStartIndexClick: () -> Unit
 ) {
     Column(
@@ -475,27 +520,23 @@ fun SettingsSection(
 
         Text("文件类型：")
         Spacer(modifier = Modifier.height(4.dp))
-        Column {
-            allExtensions.forEach { ext ->
-                val checked = selectedExtensions.contains(ext)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(vertical = 2.dp)
-                ) {
-                    Checkbox(
-                        checked = checked,
-                        onCheckedChange = { onToggleExtension(ext) }
-                    )
-                    Text(text = ext)
-                }
-            }
 
-            if (selectedExtensions.isEmpty()) {
-                Text(
-                    text = "（当前未选择任何类型，将不会索引文件）",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
+        // 摘要显示当前选中的类型
+        val selectedSummary = if (selectedExtensions.isEmpty()) {
+            "（当前未选择任何类型，将不会索引文件）"
+        } else {
+            selectedExtensions.joinToString(", ")
+        }
+
+        Text(
+            text = selectedSummary,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(onClick = onOpenExtensionPicker) {
+            Text("选择文件类型")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -545,7 +586,6 @@ fun SettingsSection(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // 限制说明区域高度，内部自己滚动
                         .heightIn(min = 120.dp, max = 260.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
@@ -556,7 +596,7 @@ fun SettingsSection(
    - 选中后，应用会记住该目录，并在后续索引和搜索中使用。
 
 2. 选择需要索引的文件类型：
-   - 在“文件类型”区域勾选需要建立索引的类型，例如 txt、pdf、docx；
+   - 点击“选择文件类型”按钮，在弹出的列表中勾选需要建立索引的类型，例如 txt、pdf、docx；
    - 目前仅对勾选的类型文件进行扫描和内容提取，未勾选的类型会被忽略。
 
 3. 建立索引：
