@@ -33,6 +33,8 @@ data class MainUiState(
     val isIndexing: Boolean = false,
     val indexProgress: Float = 0f,
 
+    // 文件类型选择弹窗
+    val isExtensionDialogVisible: Boolean = false,
 
     // 预览弹窗相关
     val isPreviewDialogVisible: Boolean = false,
@@ -53,7 +55,17 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     /* ---------- 导航 ---------- */
+    fun openExtensionDialog() {
+        _uiState.update {
+            it.copy(isExtensionDialogVisible = true)
+        }
+    }
 
+    fun dismissExtensionDialog() {
+        _uiState.update {
+            it.copy(isExtensionDialogVisible = false)
+        }
+    }
     fun switchSection(section: MainSection) {
         _uiState.update { it.copy(currentSection = section) }
     }
