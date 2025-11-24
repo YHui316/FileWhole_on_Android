@@ -33,9 +33,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 
-/**
- * 主界面：左侧导航 + 右侧内容区域（Compose UI）
- */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,7 +74,6 @@ fun DocumentSearchApp(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         if (uri != null) {
-            // 申请持久化读写权限
             try {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
@@ -129,11 +125,13 @@ fun DocumentSearchApp(
                 icon = {},
                 label = { Text("索引管理") }
             )
+
             HorizontalDivider(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(1.dp),
-                thickness = DividerDefaults.Thickness, color = DividerDefaults.color
+                thickness = DividerDefaults.Thickness,
+                color = DividerDefaults.color
             )
         }
 
@@ -156,11 +154,9 @@ fun DocumentSearchApp(
                         onSearchClick = { viewModel.search() },
                         onClearClick = { viewModel.clearSearch() },
                         onPreviewClick = { result ->
-                            // 调用 ViewModel，拉取数据库中的 content 并显示弹窗
                             viewModel.showPreview(result)
                         },
                         onOpenClick = { result ->
-                            // 打开文件
                             val uri = try {
                                 Uri.parse(result.id)
                             } catch (e: Exception) {
@@ -182,7 +178,6 @@ fun DocumentSearchApp(
                             }
                         },
                         onOpenDirClick = { result ->
-                            // 打开所在目录（尽力而为，有些机型/文件管理器可能不支持）
                             val fileUri = try {
                                 Uri.parse(result.id)
                             } catch (e: Exception) {
@@ -217,7 +212,7 @@ fun DocumentSearchApp(
                         }
                     )
 
-                    // 覆盖在搜索页面上的预览弹窗
+                    // 预览弹窗
                     if (uiState.isPreviewDialogVisible) {
                         AlertDialog(
                             onDismissRequest = { viewModel.dismissPreview() },
@@ -256,7 +251,6 @@ fun DocumentSearchApp(
                 }
 
                 MainSection.SETTINGS -> {
-                    // 系统设置页面主体
                     SettingsSection(
                         selectedDirectory = uiState.selectedDirectory,
                         allExtensions = uiState.availableExtensions,
@@ -282,7 +276,6 @@ fun DocumentSearchApp(
                         }
                     )
 
-                    // 文件类型选择弹窗
                     if (uiState.isExtensionDialogVisible) {
                         AlertDialog(
                             onDismissRequest = { viewModel.dismissExtensionDialog() },
@@ -328,12 +321,12 @@ fun DocumentSearchApp(
                 }
 
                 MainSection.INDEX -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("索引管理板块（待实现）")
-                    }
+                    IndexSection(
+                        indexes = uiState.indexList,
+                        errors = uiState.errorList,
+                        isLoading = uiState.isIndexInfoLoading,
+                        errorMessage = uiState.indexInfoError
+                    )
                 }
             }
         }
@@ -443,27 +436,24 @@ fun SearchResultRow(
     onOpenClick: () -> Unit,
     onOpenDirClick: () -> Unit
 ) {
-    val shortPath = shortenPath(result.id, maxLen = 25)
+    val shortPath = shortenPath(result.id, maxLen = 8)   // ★ 只保留前 8 个字符
 
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // 第一行：文件名
             Text(
                 text = result.fileName,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold
             )
 
-            // 第二行：截断后的路径
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "路径: $shortPath",
                 style = MaterialTheme.typography.bodySmall
             )
 
-            // 第三行：操作按钮
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -477,17 +467,18 @@ fun SearchResultRow(
     }
 }
 
-/** 把长路径截断为前 8 个字符，多余部分用 "..." 表示 */
+/** 把长路径截断为前 maxLen 个字符，多余部分用 "..." 表示 */
 private fun shortenPath(path: String, maxLen: Int = 8): String {
     return if (path.length <= maxLen) path else path.substring(0, maxLen) + "..."
 }
 
-/* ---------------- 系统设置板块 UI（已改：文件类型 = 按钮 + 弹窗） ---------------- */
+/* ---------------- 系统设置板块 UI（文件类型 = 按钮 + 弹窗 + 使用说明） ---------------- */
+
 @Composable
 fun SettingsSection(
     selectedDirectory: String,
-    allExtensions: List<String>,      // 可选文件类型
-    selectedExtensions: List<String>,  // 当前勾选的类型
+    allExtensions: List<String>,
+    selectedExtensions: List<String>,
     isIndexing: Boolean,
     indexProgress: Float,
     onChooseDirectoryClick: () -> Unit,
@@ -498,7 +489,7 @@ fun SettingsSection(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            .verticalScroll(rememberScrollState())   // 整个设置页仍然可滚动
+            .verticalScroll(rememberScrollState())
     ) {
         Text(
             text = "系统设置",
@@ -521,7 +512,6 @@ fun SettingsSection(
         Text("文件类型：")
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 摘要显示当前选中的类型
         val selectedSummary = if (selectedExtensions.isEmpty()) {
             "（当前未选择任何类型，将不会索引文件）"
         } else {
@@ -534,7 +524,6 @@ fun SettingsSection(
         )
 
         Spacer(modifier = Modifier.height(8.dp))
-
         Button(onClick = onOpenExtensionPicker) {
             Text("选择文件类型")
         }
@@ -568,7 +557,7 @@ fun SettingsSection(
             Text(if (isIndexing) "索引中..." else "开始建立索引")
         }
 
-        // ===== 使用说明框（内部可单独滚动） =====
+        // 使用说明框
         Spacer(modifier = Modifier.height(24.dp))
 
         Card(
@@ -616,6 +605,146 @@ fun SettingsSection(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+        }
+    }
+}
+
+/* ---------------- 索引管理板块 UI ---------------- */
+
+@Composable
+fun IndexSection(
+    indexes: List<IndexSummary>,
+    errors: List<ErrorFileInfo>,
+    isLoading: Boolean,
+    errorMessage: String?
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        Text(
+            text = "索引管理",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            return@Column
+        }
+
+        if (errorMessage != null) {
+            Text(
+                text = "加载失败：$errorMessage",
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        Text(
+            text = "索引概览",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (indexes.isEmpty()) {
+            Text("暂无索引记录")
+        } else {
+            indexes.forEach { idx ->
+                IndexSummaryCard(idx)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "错误文件",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (errors.isEmpty()) {
+            Text("暂无错误记录")
+        } else {
+            errors.forEach { err ->
+                ErrorFileRow(err)
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+        }
+    }
+}
+//工具函数，用来做索引展示的大小格式化
+private fun formatIndexSize(bytes: Long): String {
+    val KB = 1024.0
+    val MB = KB * 1024
+    val GB = MB * 1024
+
+    return when {
+        bytes < MB -> String.format("%.1fKB", bytes / KB)
+        bytes < GB -> String.format("%.1fMB", bytes / MB)
+        else -> String.format("%.1fGB", bytes / GB)
+    }
+}
+
+@Composable
+private fun IndexSummaryCard(summary: IndexSummary) {
+    val shortPath = shortenPath(summary.path, maxLen = 25)
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "目录：$shortPath",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("总文件数：${summary.allFileCount}")
+            Text("已索引：${summary.successFileCount}")
+            Text("错误数：${summary.errorFileCount}")
+            Text("索引大小：${formatIndexSize(summary.indexSize)}")
+            Text("状态：${if (summary.status == 1) "完成" else "进行中"}")
+        }
+    }
+}
+
+@Composable
+private fun ErrorFileRow(info: ErrorFileInfo) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(
+                text = "文件：${info.fileName}",
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("目录：${info.dirpath}", style = MaterialTheme.typography.bodySmall)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("错误：${info.errExplain}", style = MaterialTheme.typography.bodySmall)
+            if (info.errMessage.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "详情：${info.errMessage}",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }
