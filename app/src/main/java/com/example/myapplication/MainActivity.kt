@@ -100,7 +100,7 @@ fun DocumentSearchApp(
             containerColor = Color(0xFFE3F2FD)   // 浅蓝色背景
         ) {
             Text(
-                text = "FileWhole",
+                text = "FW V1.0",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(8.dp)
             )
@@ -436,7 +436,7 @@ fun SearchResultRow(
     onOpenClick: () -> Unit,
     onOpenDirClick: () -> Unit
 ) {
-    val shortPath = shortenPath(result.id, maxLen = 8)   // ★ 只保留前 8 个字符
+    val shortPath = shortenPath(result.id, maxLen = 25)   // ★ 只保留前 8 个字符
 
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -565,7 +565,7 @@ fun SettingsSection(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "使用说明",
+                    text = "FileWhole使用说明",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
