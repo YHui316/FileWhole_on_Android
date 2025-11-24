@@ -24,11 +24,9 @@ data class MainUiState(
     val isSearching: Boolean = false,
 
     // 系统设置 / 索引配置
-    val selectedDirectory: String = "未选择",           // 展示给用户看的名称
-    val selectedDirectoryUri: String? = null,          // SAF 的 Uri 字符串
-    // ✔ 可选择的所有文件类型（你以后要扩展就在这里加）
-    val availableExtensions: List<String> = listOf("txt", "pdf", "docx"),
-    // ✔ 当前勾选的文件类型（默认只勾 txt）
+    val selectedDirectory: String = "未选择",
+    val selectedDirectoryUri: String? = null,
+    val availableExtensions: List<String> = listOf("txt", "pdf", "docx","doc","md","log","json"),
     val selectedExtensions: List<String> = listOf("txt"),
     val isIndexing: Boolean = false,
     val indexProgress: Float = 0f,
@@ -36,12 +34,18 @@ data class MainUiState(
     // 文件类型选择弹窗
     val isExtensionDialogVisible: Boolean = false,
 
-    // 预览弹窗相关
+    // 预览弹窗
     val isPreviewDialogVisible: Boolean = false,
     val previewFileName: String = "",
     val previewContent: String = "",
     val isPreviewLoading: Boolean = false,
-    val previewError: String? = null
+    val previewError: String? = null,
+
+    // 索引管理板块
+    val indexList: List<IndexSummary> = emptyList(),
+    val errorList: List<ErrorFileInfo> = emptyList(),
+    val isIndexInfoLoading: Boolean = false,
+    val indexInfoError: String? = null
 )
 
 /**
@@ -55,19 +59,21 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     /* ---------- 导航 ---------- */
-    fun openExtensionDialog() {
-        _uiState.update {
-            it.copy(isExtensionDialogVisible = true)
+
+    fun switchSection(section: MainSection) {
+        _uiState.update { it.copy(currentSection = section) }
+
+        if (section == MainSection.INDEX) {
+            loadIndexManagement()
         }
     }
 
-    fun dismissExtensionDialog() {
-        _uiState.update {
-            it.copy(isExtensionDialogVisible = false)
-        }
+    fun openExtensionDialog() {
+        _uiState.update { it.copy(isExtensionDialogVisible = true) }
     }
-    fun switchSection(section: MainSection) {
-        _uiState.update { it.copy(currentSection = section) }
+
+    fun dismissExtensionDialog() {
+        _uiState.update { it.copy(isExtensionDialogVisible = false) }
     }
 
     /* ---------- 搜索板块 ---------- */
@@ -119,15 +125,13 @@ class MainViewModel(
             parts += "content:$content"
         }
         if (fileName.isNotBlank()) {
-            // 文件名前缀匹配
             parts += "file_name:${fileName}*"
         }
         return parts.joinToString(" AND ")
     }
 
-    /* ---------- 系统设置 / 索引板块 ---------- */
+    /* ---------- 系统设置 / 索引 ---------- */
 
-    /** 用户选择了目录之后调用 */
     fun setSelectedDirectory(uri: Uri, displayName: String) {
         _uiState.update {
             it.copy(
@@ -136,10 +140,6 @@ class MainViewModel(
             )
         }
     }
-
-//    fun setSelectedExtensions(exts: List<String>) {
-//        _uiState.update { it.copy(selectedExtensions = exts) }
-//    }
 
     fun toggleExtension(ext: String) {
         _uiState.update { state ->
@@ -153,10 +153,7 @@ class MainViewModel(
         }
     }
 
-    /**
-     * 开始构建索引：扫描 selectedDirectoryUri 下的所有 txt 文件并写入数据库，
-     * 同时根据处理进度更新进度条。
-     */
+    /** 开始构建索引 */
     fun startIndexing() {
         val state = _uiState.value
         if (state.isIndexing) return
@@ -177,7 +174,6 @@ class MainViewModel(
                 _uiState.update { it.copy(indexProgress = progress) }
             }
 
-            // 索引结束
             _uiState.update { it.copy(isIndexing = false) }
         }
     }
@@ -186,7 +182,6 @@ class MainViewModel(
 
     fun showPreview(result: SearchResult) {
         viewModelScope.launch {
-            // 先让弹窗显示，并进入“加载中”状态
             _uiState.update {
                 it.copy(
                     isPreviewDialogVisible = true,
@@ -229,11 +224,40 @@ class MainViewModel(
         }
     }
 
+    /* ---------- 索引管理板块：加载 t_index & t_error ---------- */
+
+    private fun loadIndexManagement() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isIndexInfoLoading = true,
+                    indexInfoError = null
+                )
+            }
+            try {
+                val indexes = repository.loadIndexSummaries()
+                val errors = repository.loadErrorFiles()
+                _uiState.update {
+                    it.copy(
+                        isIndexInfoLoading = false,
+                        indexList = indexes,
+                        errorList = errors,
+                        indexInfoError = null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isIndexInfoLoading = false,
+                        indexInfoError = e.message ?: "加载索引信息失败"
+                    )
+                }
+            }
+        }
+    }
 }
 
-/**
- * 简单的 ViewModelFactory，用来把 Context → DB → Repository 注入到 ViewModel
- */
+/** 简单的 ViewModelFactory，用来把 Context → DB → Repository 注入到 ViewModel */
 class MainViewModelFactory(
     private val context: Context
 ) : ViewModelProvider.Factory {
